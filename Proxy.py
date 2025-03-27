@@ -138,6 +138,7 @@ while True:
     print("Before creating socket, originServerSocket =", originServerSocket)
     # ~~~~ INSERT CODE ~~~~
     originServerSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    originServerSocket.settimeout(5)  # 5 second timeout for operations
     # ~~~~ END CODE INSERT ~~~~
     print("After creating socket, originServerSocket =", originServerSocket)
 
@@ -147,7 +148,15 @@ while True:
       address = socket.gethostbyname(hostname)
       # Connect to the origin server
       # ~~~~ INSERT CODE ~~~~
-      originServerSocket.connect((address,80))
+      try:
+        originServerSocket.connect((address, 80))
+      except socket.error as e:
+        print(f"Failed to connect to origin server: {e}")
+        error_response = f"HTTP/1.1 502 Bad Gateway\r\n\r\n<html><body><h1>502 Bad Gateway</h1><p>Error connecting to origin server: {e}</p></body></html>"
+        clientSocket.sendall(error_response.encode())
+        clientSocket.close()
+        originServerSocket.close()
+        continue
       # ~~~~ END CODE INSERT ~~~~
       print ('Connected to origin Server')
 
@@ -159,7 +168,7 @@ while True:
       # originServerRequestHeader is the second line in the request
       # ~~~~ INSERT CODE ~~~~
       originServerRequest = method + ' ' + resource + ' HTTP/1.1'
-      originServerRequestHeader = 'Host: ' + hostname
+      originServerRequestHeader = 'Host: ' + hostname 
       # ~~~~ END CODE INSERT ~~~~
 
       # Construct the request to send to the origin server
@@ -180,10 +189,67 @@ while True:
 
       # Get the response from the origin server
       # ~~~~ INSERT CODE ~~~~
+      response_bytes = b''
+      try:
+        originServerSocket.sendall(request.encode())
+        print("Request sent to origin server")
+    
+        # Set a shorter timeout for receiving data
+        originServerSocket.settimeout(10)
+    
+        # Read response in chunks
+        while True:
+          try:
+            chunk = originServerSocket.recv(BUFFER_SIZE)
+            if not chunk:
+                break
+            response_bytes += chunk
+          except socket.timeout:
+            print("Socket timeout while receiving - assuming end of response")
+            break
+          except Exception as e:
+            print(f"Error receiving data: {e}")
+            break
+    
+        print(f"Received {len(response_bytes)} bytes from origin server")
+        if len(response_bytes) > 0:
+          print(f"First 100 bytes: {response_bytes[:100]}")
+    
+        # Send response to client
+        if response_bytes:
+          clientSocket.sendall(response_bytes)
+        else:
+          # If no data received, send an error
+          error_msg = "HTTP/1.1 502 Bad Gateway\r\n\r\n<html><body><h1>502 Bad Gateway</h1><p>No response from origin server</p></body></html>"
+          clientSocket.sendall(error_msg.encode())
+    
+        # Cache the response if we got a valid one
+        if response_bytes and len(response_bytes) > 0:
+          try:
+            # Create directory structure for cache
+            os.makedirs(os.path.dirname(cacheLocation), exist_ok=True)
+            with open(cacheLocation, 'wb') as cacheFile:
+                cacheFile.write(response_bytes)
+            print("Response cached successfully")
+          except Exception as e:
+            print(f"Error caching response: {e}")
+    
+      except Exception as e:
+        print(f"Error in communication with origin server: {e}")
+        try:
+          error_msg = f"HTTP/1.1 500 Internal Server Error\r\n\r\n<html><body><h1>500 Internal Server Error</h1><p>{str(e)}</p></body></html>"
+          clientSocket.sendall(error_msg.encode())
+        except:
+          pass
+      finally:
+        # Clean up
+        originServerSocket.close()
+        print("Origin server socket closed")
       # ~~~~ END CODE INSERT ~~~~
 
       # Send the response to the client
       # ~~~~ INSERT CODE ~~~~
+      clientSocket.sendall(response_bytes)
       # ~~~~ END CODE INSERT ~~~~
 
       # Create a new file in the cache for the requested file.

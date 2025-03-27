@@ -1,9 +1,12 @@
 import socket
+import time
 
 def test_proxy(host='localhost', port=8081, url='http://example.com/'):
-    """Test client for proxy server."""
+    """Test client for proxy server with timeout handling."""
     # Create a socket and connect to the proxy
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.settimeout(15)  # 15 second timeout
+    
     try:
         client_socket.connect((host, port))
         print(f"Connected to proxy at {host}:{port}")
@@ -13,18 +16,40 @@ def test_proxy(host='localhost', port=8081, url='http://example.com/'):
         print(f"Sending request:\n{request}")
         client_socket.sendall(request.encode())
         
-        # Receive the response
+        # Receive the response with timeout handling
         response = b""
+        start_time = time.time()
+        
         while True:
-            data = client_socket.recv(4096)
-            if not data:
+            try:
+                data = client_socket.recv(4096)
+                if not data:
+                    break
+                response += data
+                
+                # Don't wait forever
+                if time.time() - start_time > 15:
+                    print("Response taking too long - breaking")
+                    break
+                    
+            except socket.timeout:
+                print("Socket timeout - assuming response is complete")
                 break
-            response += data
+            except Exception as e:
+                print(f"Error receiving data: {e}")
+                break
         
         # Print the response
-        print("\nReceived response:")
+        print(f"\nReceived {len(response)} bytes in response:")
         print("-" * 40)
-        print(response.decode(errors='replace'))
+        if response:
+            # Try to decode as UTF-8, but fallback on latin-1 if there are encoding issues
+            try:
+                print(response.decode('utf-8', errors='replace'))
+            except:
+                print(response.decode('latin-1', errors='replace'))
+        else:
+            print("No response received")
         print("-" * 40)
         
     except Exception as e:
@@ -32,6 +57,7 @@ def test_proxy(host='localhost', port=8081, url='http://example.com/'):
     finally:
         # Close the socket
         client_socket.close()
+        print("Connection closed")
 
 if __name__ == "__main__":
     import sys
