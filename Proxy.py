@@ -135,8 +135,11 @@ while True:
     originServerSocket = None
     # Create a socket to connect to origin server
     # and store in originServerSocket
+    print("Before creating socket, originServerSocket =", originServerSocket)
     # ~~~~ INSERT CODE ~~~~
+    originServerSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # ~~~~ END CODE INSERT ~~~~
+    print("After creating socket, originServerSocket =", originServerSocket)
 
     print ('Connecting to:\t\t' + hostname + '\n')
     try:
@@ -144,6 +147,7 @@ while True:
       address = socket.gethostbyname(hostname)
       # Connect to the origin server
       # ~~~~ INSERT CODE ~~~~
+      originServerSocket.connect((address,80))
       # ~~~~ END CODE INSERT ~~~~
       print ('Connected to origin Server')
 
@@ -154,6 +158,8 @@ while True:
       # originServerRequest is the first line in the request and
       # originServerRequestHeader is the second line in the request
       # ~~~~ INSERT CODE ~~~~
+      originServerRequest = method + ' ' + resource + ' HTTP/1.1'
+      originServerRequestHeader = 'Host: ' + hostname
       # ~~~~ END CODE INSERT ~~~~
 
       # Construct the request to send to the origin server
