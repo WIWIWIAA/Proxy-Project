@@ -9,66 +9,6 @@ from datetime import datetime
 # 1MB buffer size
 BUFFER_SIZE = 1000000
 
-def should_use_cache(cache_location):
-    """
-    Check if a cached file should be used based on its existence and cache-control headers
-    """
-    # Check if file exists
-    if not os.path.exists(cache_location):
-        return False
-    
-    try:
-        # Read the first part of the file to check headers
-        with open(cache_location, 'rb') as file:
-            headers_data = file.read(1024)  # Read enough to get headers
-            headers_text = headers_data.decode('utf-8', errors='replace')
-            
-            # Check for max-age in Cache-Control header
-            max_age_match = re.search(r'Cache-Control:.*?max-age=(\d+)', headers_text, re.IGNORECASE)
-            if max_age_match:
-                max_age = int(max_age_match.group(1))
-                if max_age == 0:  # If max-age=0, always revalidate
-                    print(f"Cache-Control: max-age=0 found, not using cache")
-                    return False
-                
-                # Check if file is still fresh based on modification time
-                file_mtime = os.path.getmtime(cache_location)
-                current_time = time.time()
-                if (current_time - file_mtime) > max_age:
-                    print(f"Cache expired according to max-age: {max_age}s")
-                    return False
-            
-            # Check for Expires header
-            expires_match = re.search(r'Expires: (.*?)(\r\n|\r|\n)', headers_text, re.IGNORECASE)
-            if expires_match:
-                expires_str = expires_match.group(1).strip()
-                try:
-                    # Handle multiple date formats
-                    for fmt in ["%a, %d %b %Y %H:%M:%S GMT", "%A, %d-%b-%y %H:%M:%S GMT", "%A, %d-%b-%Y %H:%M:%S GMT"]:
-                        try:
-                            expires_date = datetime.strptime(expires_str, fmt)
-                            current_date = datetime.utcnow()
-                            if current_date > expires_date:
-                                print(f"Cache expired according to Expires header: {expires_date}")
-                                return False
-                            break
-                        except ValueError:
-                            continue
-                except Exception as e:
-                    print(f"Error parsing Expires date: {e}")
-            
-            # Check if response is a redirect (301/302) - these should generally not be cached
-            status_line = headers_text.split('\r\n')[0] if '\r\n' in headers_text else headers_text.split('\n')[0]
-            if '301 ' in status_line or '302 ' in status_line:
-                print("Cache is a redirect response, not using cache")
-                return False
-            
-            # If no cache control directives found or all checks pass, use the cache
-            return True
-    except Exception as e:
-        print(f"Error checking cache: {e}")
-        return False
-
 def main():
     if len(sys.argv) <= 2:
         print('Usage : "python Proxy.py server_ip server_port"\n[server_ip : IP Address Of Proxy Server]\n[server_port : Port Of Proxy Server]')
@@ -81,8 +21,10 @@ def main():
     # Create a server socket, bind it to a port and start listening
     try:
         # Create a server socket
+        # ~~~~ INSERT CODE ~~~~
         serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         serverSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # ~~~~ END CODE INSERT ~~~~
         print('Created socket')
     except:
         print('Failed to create socket')
@@ -90,7 +32,9 @@ def main():
     
     try:
         # Bind the the server socket to a host and port
+        # ~~~~ INSERT CODE ~~~~
         serverSocket.bind((proxyHost, proxyPort))
+        # ~~~~ END CODE INSERT ~~~~
         print('Port is bound')
     except:
         print('Port is already in use')
@@ -98,7 +42,9 @@ def main():
     
     try:
         # Listen on the server socket
+        # ~~~~ INSERT CODE ~~~~
         serverSocket.listen(5)  # Allow up to 5 queued connections
+        # ~~~~ END CODE INSERT ~~~~
         print('Listening to socket')
     except:
         print('Failed to listen')
@@ -111,7 +57,9 @@ def main():
     
         # Accept connection from client and store in the clientSocket
         try:
+            # ~~~~ INSERT CODE ~~~~
             clientSocket, clientAddr = serverSocket.accept()
+            # ~~~~ END CODE INSERT ~~~~
             print('Received a connection from:', clientAddr)
         except:
             print('Failed to accept connection')
@@ -119,17 +67,15 @@ def main():
     
         # Get HTTP request from client
         # and store it in the variable: message_bytes
+        # ~~~~ INSERT CODE ~~~~
         message_bytes = b''
         while True:
-            try:
-                data = clientSocket.recv(BUFFER_SIZE)
-                message_bytes += data
-                # If either no more data or we've received the end of the HTTP request (blank line)
-                if not data or b'\r\n\r\n' in message_bytes:
-                    break
-            except Exception as e:
-                print(f"Error receiving client request: {e}")
+            data = clientSocket.recv(BUFFER_SIZE)
+            message_bytes += data
+            # If either no more data or we've received the end of the HTTP request (blank line)
+            if not data or b'\r\n\r\n' in message_bytes:
                 break
+        # ~~~~ END CODE INSERT ~~~~
     
         try:
             message = message_bytes.decode('utf-8')
@@ -165,156 +111,174 @@ def main():
     
             print('Requested Resource:\t' + resource)
     
-            # Check if resource is in cache and should be used
-            cacheLocation = './' + hostname + resource
-            if cacheLocation.endswith('/'):
-                cacheLocation = cacheLocation + 'default'
+            # Check if resource is in cache
+            try:
+                cacheLocation = './' + hostname + resource
+                if cacheLocation.endswith('/'):
+                    cacheLocation = cacheLocation + 'default'
     
-            print('Cache location:\t\t' + cacheLocation)
+                print('Cache location:\t\t' + cacheLocation)
     
-            # Check if we should use the cached file
-            use_cache = should_use_cache(cacheLocation)
-            
-            if use_cache:
-                try:
-                    # Read from cache file
-                    with open(cacheLocation, "rb") as cacheFile:
-                        cacheData = cacheFile.read()
-    
+                # Check if we should use cached version
+                use_cache = False
+                if os.path.isfile(cacheLocation):
+                    # Check cache-control headers
+                    with open(cacheLocation, 'rb') as f:
+                        head_data = f.read(1024)  # Read enough for headers
+                        head_text = head_data.decode('utf-8', errors='replace')
+                        
+                        # Check for redirect - don't use cache for redirects
+                        status_line = head_text.split('\r\n')[0]
+                        if '301 ' in status_line or '302 ' in status_line:
+                            use_cache = False
+                        else:
+                            # Check for max-age=0
+                            max_age_match = re.search(r'Cache-Control:.*?max-age=(\d+)', head_text, re.IGNORECASE)
+                            if max_age_match:
+                                max_age = int(max_age_match.group(1))
+                                if max_age == 0:
+                                    # Don't use cache for max-age=0
+                                    use_cache = False
+                                else:
+                                    # Check if file is still fresh
+                                    file_time = os.path.getmtime(cacheLocation)
+                                    current_time = time.time()
+                                    if (current_time - file_time) <= max_age:
+                                        use_cache = True
+                            else:
+                                use_cache = True  # No max-age directive, use cache
+                
+                if use_cache:
+                    fileExists = os.path.isfile(cacheLocation)
+                    
+                    # Check wether the file is currently in the cache
+                    cacheFile = open(cacheLocation, "rb")
+                    cacheData = cacheFile.read()
+        
                     print('Cache hit! Loading from cache file: ' + cacheLocation)
-                    # Send cached data to client
+                    # ProxyServer finds a cache hit
+                    # Send back response to client 
+                    # ~~~~ INSERT CODE ~~~~
                     clientSocket.sendall(cacheData)
+                    # ~~~~ END CODE INSERT ~~~~
+                    cacheFile.close()
                     print('Sent to the client:')
                     print('> ' + str(cacheData[:100]))
-                    
-                    # Close connection
-                    clientSocket.shutdown(socket.SHUT_WR)
-                except Exception as e:
-                    print(f"Error reading cache: {e}")
-                    use_cache = False  # Fall back to origin server
-            
-            if not use_cache:
-                # Cache miss or expired cache. Get resource from origin server
+                else:
+                    raise Exception("Cache validation failed or cache not usable")
+            except:
+                # cache miss.  Get resource from origin server
                 originServerSocket = None
+                # Create a socket to connect to origin server
+                # and store in originServerSocket
+                # ~~~~ INSERT CODE ~~~~
+                originServerSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                # ~~~~ END CODE INSERT ~~~~
+    
+                print('Connecting to:\t\t' + hostname + '\n')
                 try:
-                    # Create a socket to connect to origin server
-                    originServerSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    originServerSocket.settimeout(10)  # 10 second timeout
-        
-                    print('Connecting to:\t\t' + hostname + '\n')
+                    # Get the IP address for a hostname
+                    address = socket.gethostbyname(hostname)
+                    # Connect to the origin server
+                    # ~~~~ INSERT CODE ~~~~
+                    originServerSocket.connect((address, 80))
+                    # ~~~~ END CODE INSERT ~~~~
+                    print('Connected to origin Server')
+    
+                    originServerRequest = ''
+                    originServerRequestHeader = ''
+                    # Create origin server request line and headers to send
+                    # and store in originServerRequestHeader and originServerRequest
+                    # originServerRequest is the first line in the request and
+                    # originServerRequestHeader is the second line in the request
+                    # ~~~~ INSERT CODE ~~~~
+                    originServerRequest = method + ' ' + resource + ' HTTP/1.1'
+                    originServerRequestHeader = 'Host: ' + hostname + '\r\nConnection: close'
+                    # ~~~~ END CODE INSERT ~~~~
+    
+                    # Construct the request to send to the origin server
+                    request = originServerRequest + '\r\n' + originServerRequestHeader + '\r\n\r\n'
+    
+                    # Request the web resource from origin server
+                    print('Forwarding request to origin server:')
+                    for line in request.split('\r\n'):
+                        print('> ' + line)
+    
                     try:
-                        # Get the IP address for a hostname
-                        address = socket.gethostbyname(hostname)
-                        # Connect to the origin server
-                        originServerSocket.connect((address, 80))
-                        print('Connected to origin Server')
-        
-                        # Create origin server request line and headers
-                        originServerRequest = method + ' ' + resource + ' HTTP/1.1'
-                        originServerRequestHeader = 'Host: ' + hostname + '\r\nConnection: close'
-        
-                        # Construct the request to send to the origin server
-                        request = originServerRequest + '\r\n' + originServerRequestHeader + '\r\n\r\n'
-        
-                        # Request the web resource from origin server
-                        print('Forwarding request to origin server:')
-                        for line in request.split('\r\n'):
-                            print('> ' + line)
-        
-                        try:
-                            originServerSocket.sendall(request.encode())
-                        except socket.error as e:
-                            print(f'Forward request to origin failed: {e}')
-                            error_response = f"HTTP/1.1 502 Bad Gateway\r\n\r\n<html><body><h1>502 Bad Gateway</h1><p>Failed to send request to origin server: {e}</p></body></html>"
-                            clientSocket.sendall(error_response.encode())
-                            if originServerSocket:
-                                originServerSocket.close()
-                            continue
-        
-                        print('Request sent to origin server\n')
-        
-                        # Get the response from the origin server
-                        response_bytes = b''
-                        try:
-                            while True:
-                                chunk = originServerSocket.recv(BUFFER_SIZE)
-                                if not chunk:
-                                    break
-                                response_bytes += chunk
-                        except socket.timeout:
-                            print("Socket timeout while receiving - response might be incomplete")
+                        originServerSocket.sendall(request.encode())
+                    except socket.error:
+                        print('Forward request to origin failed')
+                        sys.exit()
+    
+                    print('Request sent to origin server\n')
+    
+                    # Get the response from the origin server
+                    # ~~~~ INSERT CODE ~~~~
+                    response_bytes = b''
+                    while True:
+                        chunk = originServerSocket.recv(BUFFER_SIZE)
+                        if not chunk:
+                            break
+                        response_bytes += chunk
+                    # ~~~~ END CODE INSERT ~~~~
+    
+                    # Send the response to the client
+                    # ~~~~ INSERT CODE ~~~~
+                    clientSocket.sendall(response_bytes)
+                    # ~~~~ END CODE INSERT ~~~~
+    
+                    # Check if we should cache this response
+                    should_cache = True
+                    
+                    # Don't cache redirects
+                    try:
+                        response_start = response_bytes[:100].decode('utf-8', errors='replace')
+                        status_line = response_start.split('\r\n')[0]
+                        if '301 ' in status_line or '302 ' in status_line:
+                            print("Not caching redirect response")
+                            should_cache = False
                         
-                        # Check if we received a response
-                        if not response_bytes:
-                            raise Exception("No response received from origin server")
+                        # Don't cache if Cache-Control says not to
+                        if 'Cache-Control: no-store' in response_start or 'Cache-Control: no-cache' in response_start:
+                            print("Not caching due to Cache-Control directive")
+                            should_cache = False
+                    except:
+                        pass
+                    
+                    if should_cache:
+                        # Create a new file in the cache for the requested file.
+                        cacheDir, file = os.path.split(cacheLocation)
+                        print('cached directory ' + cacheDir)
+                        if not os.path.exists(cacheDir):
+                            os.makedirs(cacheDir)
+                        cacheFile = open(cacheLocation, 'wb')
         
-                        # Send the response to the client
-                        clientSocket.sendall(response_bytes)
-        
-                        # Determine if we should cache this response
-                        should_cache = True
-                        
-                        # Check if it's a redirect response
-                        try:
-                            # Get status code from response
-                            response_start = response_bytes[:100].decode('utf-8', errors='replace')
-                            status_line = response_start.split('\r\n')[0]
-                            if '301 ' in status_line or '302 ' in status_line:
-                                print(f"Redirect response detected: {status_line}")
-                                should_cache = False  # Don't cache redirects
-                            
-                            # Check for no-store directive
-                            if 'Cache-Control: no-store' in response_start or 'Cache-Control: no-cache' in response_start:
-                                should_cache = False
-                        except:
-                            pass
-                            
-                        # If we should cache, save the response
-                        if should_cache:
-                            # Create directory structure for cache
-                            cacheDir, file = os.path.split(cacheLocation)
-                            if not os.path.exists(cacheDir):
-                                os.makedirs(cacheDir)
-                                
-                            # Save to cache file
-                            with open(cacheLocation, 'wb') as cacheFile:
-                                cacheFile.write(response_bytes)
-                            print(f'Cached response to {cacheLocation}')
-        
-                        # Close the origin server socket
-                        originServerSocket.close()
-                        
-                        # Shut down client socket for writing
-                        try:
-                            clientSocket.shutdown(socket.SHUT_WR)
-                        except:
-                            pass
-                            
-                    except OSError as err:
-                        print('Origin server request failed: ' + str(err))
-                        # Send error response to client
-                        error_response = f"HTTP/1.1 502 Bad Gateway\r\n\r\n<html><body><h1>502 Bad Gateway</h1><p>{str(err)}</p></body></html>"
-                        clientSocket.sendall(error_response.encode())
-                finally:
-                    # Make sure origin server socket is closed
-                    if originServerSocket:
-                        try:
-                            originServerSocket.close()
-                        except:
-                            pass
+                        # Save origin server response in the cache file
+                        # ~~~~ INSERT CODE ~~~~
+                        cacheFile.write(response_bytes)
+                        # ~~~~ END CODE INSERT ~~~~
+                        cacheFile.close()
+                        print('cache file closed')
+    
+                    # finished communicating with origin server - shutdown socket writes
+                    print('origin response received. Closing sockets')
+                    originServerSocket.close()
+                     
+                    clientSocket.shutdown(socket.SHUT_WR)
+                    print('client socket shutdown for writing')
+                except OSError as err:
+                    print('origin server request failed. ' + str(err))
+                    # Send error response to client
+                    error_response = f"HTTP/1.1 502 Bad Gateway\r\n\r\n<html><body><h1>502 Bad Gateway</h1><p>{str(err)}</p></body></html>"
+                    clientSocket.sendall(error_response.encode())
         except Exception as e:
             print(f"Error processing request: {e}")
-            try:
-                # Send error response to client
-                error_response = f"HTTP/1.1 400 Bad Request\r\n\r\n<html><body><h1>400 Bad Request</h1><p>{str(e)}</p></body></html>"
-                clientSocket.sendall(error_response.encode())
-            except:
-                pass
+            # Send error response to client
+            error_response = f"HTTP/1.1 400 Bad Request\r\n\r\n<html><body><h1>400 Bad Request</h1><p>{str(e)}</p></body></html>"
+            clientSocket.sendall(error_response.encode())
     
-        # Close client socket
         try:
             clientSocket.close()
-            print('Client socket closed')
         except:
             print('Failed to close client socket')
 
